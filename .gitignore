@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# Airflow
+airflow/logs/
+airflow/*.db
+
+# Docker
+*.log
+
+# VSCode
+.vscode/
+
+# Spark
+metastore_db/
+spark-warehouse/
+
+# PostgreSQL
+postgres_data/
+
+# MinIO
+minio_data/
+
+# Mac/Linux
+.DS_Store
+
+# Windows
+Thumbs.db
