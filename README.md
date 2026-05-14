@@ -6,6 +6,7 @@ Projeto local completo para demonstrar uma plataforma de dados com Spark, Airflo
 
 - Orquestração com Airflow.
 - Processamento distribuído com Spark.
+- Spark Runner interno para executar `spark-submit` fora do container do Airflow.
 - Data lake em MinIO, usando camadas `bronze`, `silver` e `gold`.
 - Data mart em PostgreSQL.
 - Métricas Prometheus expostas por um exporter Python.
@@ -16,6 +17,10 @@ Projeto local completo para demonstrar uma plataforma de dados com Spark, Airflo
 
 ```text
 Airflow DAG
+   |
+   | HTTP trigger
+   v
+Spark Runner
    |
    | spark-submit
    v
@@ -45,6 +50,10 @@ docker compose up --build
 ```
 
 Primeira subida pode demorar porque o Airflow instala dependências e o Spark baixa pacotes JDBC/S3.
+
+> Nota: o projeto usa `SPARK_IMAGE=dpo-spark:3.5.1`, uma imagem local construída a partir de `SPARK_BASE_IMAGE=bitnamilegacy/spark:3.5.1` com certificados locais importados no truststore Java. As tags publicas antigas de `bitnami/spark` foram removidas/limitadas no Docker Hub, entao `bitnami/spark:3.5` pode falhar com `not found`.
+
+> Nota: o cliente MinIO usa `MINIO_MC_IMAGE=minio/mc:RELEASE.2025-08-13T08-35-41Z`, porque algumas tags antigas de `minio/mc` tambem foram removidas do Docker Hub.
 
 ## Acessos
 
@@ -137,3 +146,4 @@ docker compose down -v
 ├── sql/                     # Inicialização do PostgreSQL
 └── docker-compose.yml
 ```
+

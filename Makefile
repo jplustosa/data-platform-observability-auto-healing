@@ -1,4 +1,4 @@
-.PHONY: up down clean logs ps
+.PHONY: up down clean logs ps certs
 
 up:
 	docker compose up --build
@@ -14,3 +14,7 @@ logs:
 
 ps:
 	docker compose ps
+
+certs:
+	@powershell -ExecutionPolicy Bypass -File scripts/export-windows-root-certs.ps1
+

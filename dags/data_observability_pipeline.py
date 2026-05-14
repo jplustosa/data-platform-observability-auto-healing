@@ -1,21 +1,15 @@
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
 from auto_healing.healer import heal_run_once
 
-
-SPARK_PACKAGES = ",".join(
-    [
-        "org.postgresql:postgresql:42.7.3",
-        "org.apache.hadoop:hadoop-aws:3.3.4",
-        "com.amazonaws:aws-java-sdk-bundle:1.12.262",
-    ]
-)
 
 DEFAULT_ARGS = {
     "owner": "data-platform",
@@ -23,6 +17,22 @@ DEFAULT_ARGS = {
     "retries": 1,
     "retry_delay": timedelta(minutes=2),
 }
+
+
+def trigger_spark_runner(run_id: str, dag_id: str) -> dict:
+    payload = json.dumps({"run_id": run_id, "dag_id": dag_id}).encode("utf-8")
+    request = urllib.request.Request(
+        "http://spark-runner:18080/run",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=1900) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Spark runner failed with HTTP {exc.code}: {body}") from exc
 
 
 with DAG(
@@ -35,22 +45,10 @@ with DAG(
     max_active_runs=1,
     tags=["spark", "observability", "auto-healing"],
 ) as dag:
-    run_spark_pipeline = BashOperator(
+    run_spark_pipeline = PythonOperator(
         task_id="run_spark_pipeline",
-        bash_command=(
-            "spark-submit "
-            "--master spark://spark-master:7077 "
-            "--packages {{ params.packages }} "
-            "--conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 "
-            "--conf spark.hadoop.fs.s3a.access.key=minioadmin "
-            "--conf spark.hadoop.fs.s3a.secret.key=minioadmin "
-            "--conf spark.hadoop.fs.s3a.path.style.access=true "
-            "--conf spark.hadoop.fs.s3a.connection.ssl.enabled=false "
-            "/opt/airflow/spark/jobs/pipeline_job.py "
-            "--run-id {{ run_id }} "
-            "--dag-id {{ dag.dag_id }}"
-        ),
-        params={"packages": SPARK_PACKAGES},
+        python_callable=trigger_spark_runner,
+        op_kwargs={"run_id": "{{ run_id }}", "dag_id": "{{ dag.dag_id }}"},
     )
 
     auto_heal = PythonOperator(

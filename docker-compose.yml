@@ -31,7 +31,7 @@ services:
       - minio_data:/data
 
   minio-init:
-    image: minio/mc:RELEASE.2024-07-15T19-02-30Z
+    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
     container_name: dpo-minio-init
     depends_on:
       minio:
@@ -47,7 +47,7 @@ services:
       "
 
   spark-master:
-    image: bitnami/spark:3.5
+    image: ${SPARK_IMAGE:-dpo-spark:3.5.1}
     container_name: dpo-spark-master
     environment:
       SPARK_MODE: master
@@ -63,7 +63,7 @@ services:
       - ./spark/conf:/opt/bitnami/spark/conf/custom:ro
 
   spark-worker:
-    image: bitnami/spark:3.5
+    image: ${SPARK_IMAGE:-dpo-spark:3.5.1}
     container_name: dpo-spark-worker
     depends_on:
       - spark-master
@@ -78,6 +78,33 @@ services:
       SPARK_SSL_ENABLED: "no"
     volumes:
       - ./spark/jobs:/opt/bitnami/spark/jobs:ro
+      - ./spark/conf:/opt/bitnami/spark/conf/custom:ro
+
+  spark-runner:
+    image: ${SPARK_IMAGE:-dpo-spark:3.5.1}
+    build:
+      context: .
+      dockerfile: spark/Dockerfile
+      args:
+        SPARK_BASE_IMAGE: ${SPARK_BASE_IMAGE:-bitnamilegacy/spark:3.5.1}
+    container_name: dpo-spark-runner
+    depends_on:
+      spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      HOME: /tmp
+    command: python /opt/bitnami/spark/runner/spark_runner.py
+    ports:
+      - "18080:18080"
+    volumes:
+      - ./spark/jobs:/opt/bitnami/spark/jobs:ro
+      - ./spark/runner:/opt/bitnami/spark/runner:ro
       - ./spark/conf:/opt/bitnami/spark/conf/custom:ro
 
   airflow-init:
@@ -112,7 +139,7 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
-      spark-master:
+      spark-runner:
         condition: service_started
       minio-init:
         condition: service_completed_successfully
@@ -218,3 +245,6 @@ volumes:
   minio_data:
   prometheus_data:
   grafana_data:
+
+
+
