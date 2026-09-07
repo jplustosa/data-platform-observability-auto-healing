@@ -1,149 +1,188 @@
-# Data Platform Observability + Auto-Healing
+# Data Platform Observability & Auto-Healing
 
-Projeto local completo para demonstrar uma plataforma de dados com Spark, Airflow, PostgreSQL, MinIO, Prometheus, Grafana e Python.
+> Reproducible local data platform combining orchestration, processing, storage, observability and automated recovery.
 
-## O que a stack entrega
+**Python · Airflow · Spark · PostgreSQL · MinIO · Prometheus · Grafana · Docker**
 
-- Orquestração com Airflow.
-- Processamento distribuído com Spark.
-- Spark Runner interno para executar `spark-submit` fora do container do Airflow.
-- Data lake em MinIO, usando camadas `bronze`, `silver` e `gold`.
-- Data mart em PostgreSQL.
-- Métricas Prometheus expostas por um exporter Python.
-- Dashboard Grafana provisionado automaticamente.
-- Auto-healing baseado em resultados de qualidade de dados.
+## Why this project exists
 
-## Arquitetura
+Data platforms fail in different layers: scheduled workloads, processing, storage and data quality. This project demonstrates an operational feedback loop where workloads are executed, monitored, evaluated and, when appropriate, remediated automatically.
+
+The focus is not only data processing. It is **operability and resilience**.
+
+## Architecture
 
 ```text
-Airflow DAG
-   |
-   | HTTP trigger
-   v
-Spark Runner
-   |
-   | spark-submit
-   v
-Spark Master/Worker
-   |
-   | writes parquet
-   v
-MinIO lakehouse: bronze/silver/gold
-   |
-   | writes JDBC
-   v
-PostgreSQL mart + observability tables
-   |
-   | SQL polling
-   v
-Python metrics exporter ---> Prometheus ---> Grafana
-   |
-   v
-Python auto-healer records repair actions
+                    +----------------+
+                    |   Airflow DAG  |
+                    +-------+--------+
+                            |
+                            v
+                    +----------------+
+                    |  Spark Runner  |
+                    +-------+--------+
+                            |
+                            v
+                 +----------------------+
+                 |    Spark Cluster     |
+                 +----------+-----------+
+                            |
+                  +---------+---------+
+                  |                   |
+                  v                   v
+             +---------+        +-----------+
+             |  MinIO  |        | PostgreSQL|
+             | Bronze  |        | Data Mart |
+             | Silver  |        | Metadata  |
+             |  Gold   |        +-----+-----+
+             +---------+              |
+                                      v
+                             +----------------+
+                             | Python Exporter|
+                             +-------+--------+
+                                     |
+                                     v
+                              +-------------+
+                              | Prometheus  |
+                              +------+------+ 
+                                     |
+                                     v
+                               +-----------+
+                               |  Grafana  |
+                               +-----------+
+
+                      Failure / Quality Signal
+                                  |
+                                  v
+                         +----------------+
+                         |  Auto-Healing  |
+                         |     Python     |
+                         +-------+--------+
+                                 |
+                                 v
+                         Recovery + Audit
 ```
 
-## Subir o ambiente
+Detailed design is documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## What it demonstrates
+
+- Data pipeline orchestration with Airflow.
+- Distributed processing with Spark.
+- Object storage with MinIO.
+- Relational data mart and operational metadata in PostgreSQL.
+- Metrics exposed through a Python exporter.
+- Prometheus collection and Grafana visualization.
+- Data-quality checks.
+- Automated recovery workflow.
+- Containerized, reproducible local infrastructure.
+
+## Operational flow
+
+1. Airflow schedules or triggers the pipeline.
+2. Spark generates and processes a synthetic sales workload.
+3. Data is persisted in MinIO using bronze/silver/gold layers.
+4. Aggregated results are written to PostgreSQL.
+5. Metrics and quality results are exposed for observability.
+6. Failed checks can trigger the auto-healing path.
+7. Recovery actions are recorded for auditability.
+
+## Quick start
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-Primeira subida pode demorar porque o Airflow instala dependências e o Spark baixa pacotes JDBC/S3.
+Then open Airflow at `http://localhost:8081`, activate `data_platform_observability_auto_healing` and trigger the DAG.
 
-> Nota: o projeto usa `SPARK_IMAGE=dpo-spark:3.5.1`, uma imagem local construída a partir de `SPARK_BASE_IMAGE=bitnamilegacy/spark:3.5.1` com certificados locais importados no truststore Java. As tags publicas antigas de `bitnami/spark` foram removidas/limitadas no Docker Hub, entao `bitnami/spark:3.5` pode falhar com `not found`.
+### Main services
 
-> Nota: o cliente MinIO usa `MINIO_MC_IMAGE=minio/mc:RELEASE.2025-08-13T08-35-41Z`, porque algumas tags antigas de `minio/mc` tambem foram removidas do Docker Hub.
+| Service | Port | Purpose |
+| --- | ---: | --- |
+| Airflow | 8081 | Orchestration |
+| MinIO Console | 9001 | Object storage |
+| Spark Master | 8080 | Processing cluster |
+| PostgreSQL | 5432 | Data mart / metadata |
+| Prometheus | 9090 | Metrics |
+| Grafana | 3000 | Dashboards |
+| Metrics Exporter | 9108 | Platform metrics |
 
-## Acessos
+Credentials and environment-specific configuration belong in `.env`; do not commit secrets.
 
-| Serviço | URL | Usuário | Senha |
-| --- | --- | --- | --- |
-| Airflow | http://localhost:8081 | `admin` | `admin` |
-| MinIO Console | http://localhost:9001 | `minioadmin` | `minioadmin` |
-| Spark Master | http://localhost:8080 | - | - |
-| Prometheus | http://localhost:9090 | - | - |
-| Grafana | http://localhost:3000 | `admin` | `admin` |
-| Metrics Exporter | http://localhost:9108/metrics | - | - |
+## Observability
 
-## Executar o pipeline
+The exporter exposes metrics including:
 
-1. Abra o Airflow em http://localhost:8081.
-2. Ative a DAG `data_platform_observability_auto_healing`.
-3. Clique em `Trigger DAG`.
-4. Acompanhe a execução das tasks `run_spark_pipeline` e `auto_heal`.
-
-O job Spark gera uma massa sintética de vendas, grava parquet em MinIO, agrega vendas diárias e atualiza `mart.daily_sales` no PostgreSQL.
-
-## Métricas disponíveis
-
-O exporter Python expõe:
-
-- `data_platform_pipeline_runs_total{status=...}`
+- `data_platform_pipeline_runs_total`
 - `data_platform_last_records_in`
 - `data_platform_last_records_out`
 - `data_platform_quality_failures_total`
-- `data_platform_healing_actions_total{status=...}`
+- `data_platform_healing_actions_total`
 - `data_platform_mart_daily_sales_rows`
 
-O Grafana provisiona automaticamente o dashboard `Data Platform Observability`.
+Grafana provisions the `Data Platform Observability` dashboard automatically.
 
 ## Auto-healing
 
-Existem dois pontos de remediação:
+The project contains two remediation entry points:
 
-- A task `auto_heal` roda ao final da DAG, mesmo se o Spark falhar.
-- O serviço `auto-healer` roda em loop e procura checks falhos sem ação registrada.
+- The Airflow `auto_heal` task runs after the pipeline, including failure scenarios.
+- The `auto-healer` service continuously looks for failed checks without a registered action.
 
-Nesta versão, a cura é conservadora: ela registra ações de reparo e orienta a próxima reconstrução pelo pipeline. Isso evita apagar ou sobrescrever dados fora do fluxo controlado do Airflow.
+The current implementation intentionally uses conservative remediation: actions are recorded and the controlled pipeline is used for reconstruction rather than destructive out-of-band changes.
 
-Checks implementados:
+Implemented checks include:
 
-- `bronze_min_records`: valida volume mínimo na camada bronze.
-- `gold_has_rows`: valida se a agregação gold produziu linhas.
+- `bronze_min_records`
+- `gold_has_rows`
 
-## Consultas úteis
+## Useful SQL
 
 ```sql
-select * from mart.daily_sales order by sale_date desc;
+SELECT * FROM mart.daily_sales ORDER BY sale_date DESC;
 
-select run_id, status, records_in, records_out, started_at, finished_at
-from observability.pipeline_runs
-order by started_at desc;
+SELECT run_id, status, records_in, records_out, started_at, finished_at
+FROM observability.pipeline_runs
+ORDER BY started_at DESC;
 
-select run_id, check_name, status, observed_value, threshold_value, created_at
-from observability.data_quality_results
-order by created_at desc;
+SELECT run_id, check_name, status, observed_value, threshold_value, created_at
+FROM observability.data_quality_results
+ORDER BY created_at DESC;
 
-select run_id, action_name, status, details, created_at
-from observability.healing_actions
-order by created_at desc;
+SELECT run_id, action_name, status, details, created_at
+FROM observability.healing_actions
+ORDER BY created_at DESC;
 ```
 
-## Parar e limpar
-
-```bash
-docker compose down
-```
-
-Para remover também os volumes:
-
-```bash
-docker compose down -v
-```
-
-## Estrutura
+## Repository structure
 
 ```text
 .
-├── airflow/                 # Imagem customizada do Airflow
-├── dags/                    # DAGs Airflow
-├── docs/                    # Documentação complementar
-├── grafana/                 # Provisionamento e dashboard
-├── prometheus/              # Configuração de scrape
-├── python/                  # Exporter e auto-healing
-├── spark/                   # Jobs e configurações Spark
-├── sql/                     # Inicialização do PostgreSQL
+├── airflow/                 # Custom Airflow image
+├── dags/                    # Airflow DAGs
+├── docs/                    # Architecture and development docs
+├── grafana/                 # Dashboards and provisioning
+├── prometheus/              # Metrics configuration
+├── python/                  # Exporter and auto-healing
+├── spark/                   # Spark jobs/configuration
+├── sql/                     # PostgreSQL initialization
 └── docker-compose.yml
 ```
 
+## Portfolio case study
+
+The project is intentionally designed as an engineering case study rather than a collection of containers. The important capability is the closed operational loop:
+
+**Execute → Observe → Detect → Recover → Audit**
+
+See [`docs/PORTFOLIO.md`](docs/PORTFOLIO.md) for the case-study narrative.
+
+## Next improvements
+
+- Automated unit and integration tests.
+- CI pipeline with lint, tests and security scanning.
+- Trivy/Gitleaks/CodeQL integration.
+- More explicit failure-injection scenarios.
+- Additional data-quality rules and recovery policies.
+- Production-like deployment documentation.
